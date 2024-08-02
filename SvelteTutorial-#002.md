@@ -256,7 +256,7 @@ If you have multiple radio or checked inputs, you can bind them using " bind:gro
 ```
 
 ### Select multiple
-A select element can have a multiple attribute, in which case it will populate an array rather than selecting a single value.
+A select element can have a multiple attribute, in which case it will populate an array rather than selecting a single value. This enables multiple selection of items with binded values as shown in the code example below:
 
 ```javascript
 
@@ -320,18 +320,261 @@ The <textarea> element behaves similarly to a text input in Svelte — use bind:
 	<div>{@html marked(value)}</div>
 </div>
 
-<style>
-	.grid {
-		display: grid;
-		grid-template-columns: 5em 1fr;
-		grid-template-rows: 1fr 1fr;
-		grid-gap: 1em;
-		height: 100%;
-	}
-
-	textarea {
-		flex: 1;
-		resize: none;
-	}
-</style>
 ```
+
+
+## LIFECYCLE
+
+### onMount
+
+Every component has a lifecycle that starts when it is created, and ends when it is destroyed. There are a handful of functions that allow you to run code at key moments during that lifecycle. The one you'll use most frequently is onMount, which runs after the component is first rendered to the DOM.
+
+### beforeUpdate and afterUpdate
+
+The beforeUpdate function schedules work to happen immediately before the DOM is updated. afterUpdate is its counterpart, used for running code once the DOM is in sync with your data.
+
+Together, they're useful for doing things imperatively that are difficult to achieve in a purely state-driven way, like updating the scroll position of an element 
+
+### tick
+
+When you update component state in Svelte, it doesn't update the DOM immediately
+The tick function is unlike other lifecycle functions in that you can call it any time, not just when the component first initialises. It returns a promise that resolves as soon as any pending state changes have been applied to the DOM (or immediately, if there are no pending state changes).
+
+## STORES
+
+### Writable stores
+ 
+A store is simply an object with a subscribe method that allows interested parties to be notified whenever the store value changes. 
+Not all application state belongs inside your application's component hierarchy. Sometimes, you'll have values that need to be accessed by multiple unrelated components, or by a regular JavaScript module.
+
+consider the example below,
+
+The code in stores.js has the definition of count. It's a writable store, which means it has set and update methods in addition to subscribe
+
+#### src/App.svelte
+```javascript
+<script>
+	import { count } from './stores.js';
+	import Incrementer from './Incrementer.svelte';
+	import Decrementer from './Decrementer.svelte';
+	import Resetter from './Resetter.svelte';
+
+	let count_value;
+
+	count.subscribe((value) => {
+		count_value = value;
+	});
+</script>
+
+<h1>The count is {count_value}</h1>
+
+<Incrementer />
+<Decrementer />
+<Resetter />
+```
+
+#### src/Decrementer.svelte
+```javascript
+<script>
+	import { count } from './stores.js';
+
+	function decrement() {
+		count.update((n) => n - 1);
+	}
+</script>
+
+<button on:click={decrement}>
+	-
+</button>
+```
+
+#### src/Incrementer.svelte
+```javascript
+<script>
+	import { count } from './stores.js';
+
+	function increment() {
+		count.update((n) => n + 1);
+	}
+</script>
+
+<button on:click={increment}>
+	+
+</button>
+```
+
+#### src/Resetter.svelte
+```javascript
+<script>
+	import { count } from './stores.js';
+
+	function reset() {
+		count.set(0);
+	}
+</script>
+
+<button on:click={reset}>
+	reset
+</button>
+```
+
+####src/stores.js
+```javascript
+import { writable } from 'svelte/store';
+
+export const count = writable(0);
+```
+
+### Auto-subscriptions
+
+Instead on using complex methods to unsubscribe like importing on destroy,you can reference a store value by prefixing the store name with $.
+Auto-subscription only works with store variables that are declared (or imported) at the top-level scope of a component.
+Any name beginning with $ is assumed to refer to a store value. It's effectively a reserved character — Svelte will prevent you from declaring your own variables with a $ prefix.
+We can update the code in App.svelte as follows: 
+
+```javascript
+<script>
+	import { count } from './stores.js';
+	import Incrementer from './Incrementer.svelte';
+	import Decrementer from './Decrementer.svelte';
+	import Resetter from './Resetter.svelte';
+</script>
+
+<h1>The count is {$count}</h1>
+
+<Incrementer />
+<Decrementer />
+<Resetter />
+```
+
+### Readable stores
+
+Some stores are used for times when data from the user is unnecessary.
+
+The first argument to readable is an initial value, which can be null or undefined if you don't have one yet. The second argument is a start function that takes a set callback and returns a stop function. The start function is called when the store gets its first subscriber; stop is called when the last subscriber unsubscribes.
+
+#### App.svelte
+```javascript
+<script>
+	import { time } from './stores.js';
+
+	const formatter = new Intl.DateTimeFormat(
+		'en',
+		{
+			hour12: true,
+			hour: 'numeric',
+			minute: '2-digit',
+			second: '2-digit'
+		}
+	);
+</script>
+
+<h1>The time is {formatter.format($time)}</h1>
+```
+
+#### stores.js
+```javascript
+import { readable } from 'svelte/store';
+
+export const time = readable(new Date(), function start(set) {
+	const interval = setInterval(() => {
+		set(new Date());
+	}, 1000);
+
+	return function stop() {
+		clearInterval(interval);
+	};
+});
+```
+
+### Derived stores
+
+You can create a store whose value is based on the value of one or more other stores with derived. Building on our previous example, we can create a store that derives the time the page has been open:
+
+#### stores.js
+```javascript
+export const elapsed = derived(
+	time,
+	($time) => Math.round(($time - start) / 1000)
+);
+```
+
+import elapsed to app.svelte and create a p tag to display it
+
+
+### Custom stores
+
+As long as an object correctly implements the subscribe method, it's a store. Beyond that, anything goes. It's very easy, therefore, to create custom stores with domain-specific logic.
+
+For example, the count store from our earlier example could include increment, decrement and reset methods and avoid exposing set and update
+
+#### stores.js
+```javascript
+import { writable } from 'svelte/store';
+
+function createCount() {
+	const { subscribe, set, update } = writable(0);
+
+	return {
+		subscribe,
+		increment: () => update((n) => n + 1),
+		decrement: () => update((n) => n - 1),
+		reset: () => set(0)
+	};
+}
+
+export const count = createCount();
+```
+
+#### App.svelte
+```javascript
+<script>
+	import { count } from './stores.js';
+</script>
+
+<h1>The count is {$count}</h1>
+
+<button on:click={count.increment}>+</button>
+<button on:click={count.decrement}>-</button>
+<button on:click={count.reset}>reset</button>
+
+```
+
+### Store bindings
+If a store is writable — i.e. it has a set method — you can bind to its value, just as you can bind to local component state.
+
+In this example we're exporting a writable store name and a derived store greeting
+
+#### App.svelte
+```javascript
+<script>
+	import { name, greeting } from './stores.js';
+</script>
+
+<h1>{$greeting}</h1>
+<input bind:value={$name} />
+
+<button on:click={() => $name += '!'}>
+	Add exclamation mark!
+</button>
+
+```
+
+#### stores.js
+```javascript
+import { writable, derived } from 'svelte/store';
+
+export const name = writable('world');
+
+export const greeting = derived(name, ($name) => `Hello ${$name}!`);
+
+```
+
+Changing the input value will now update name and all its dependents.
+
+We can also assign directly to store values inside a component. Add an on:click event handler to update name.
+
+The $name += '!' assignment is equivalent to name.set($name + '!').
+
+
+
