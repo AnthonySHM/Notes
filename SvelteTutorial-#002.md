@@ -418,7 +418,7 @@ The code in stores.js has the definition of count. It's a writable store, which 
 </button>
 ```
 
-####src/stores.js
+#### src/stores.js
 ```javascript
 import { writable } from 'svelte/store';
 
